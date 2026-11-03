@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import Navbar from './components/Navbar'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import Home from './pages/Home'
@@ -13,7 +13,7 @@ import ManageBookings from './pages/owner/ManageBookings'
 import Layout from './pages/owner/Layout'
 import Addcar from './pages/owner/Addcar'
 import {Toaster} from 'react-hot-toast'
-import { useAppContext } from './context/AppContext'
+import { useAppContext } from './context/useAppContext'
 
 const App = () => {
   const {showLogin}=useAppContext()
@@ -30,8 +30,6 @@ const App = () => {
        <Route path='/Cardetails/:id' element={<Cardetails/>}/>       
        <Route path='/my-bookings' element={<Mybookings/>}/>       
        <Route path='/Cars' element={<Cars/>}/>
-       {/* these routings ofr owner */}
-       {/* always remember the file name of react is always start with capital letter */}
        <Route path='/owner' element={<Layout/>}>
        <Route index element={<Dashboard/>}/>
        <Route path='add-car' element={<Addcar/>}/>

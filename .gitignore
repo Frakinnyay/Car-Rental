@@ -1,1 +1,17 @@
-node_modules
+# dependencies & builds
+node_modules/
+dist/
+dist-ssr/
+# secrets - never commit real values (use the .env.example files)
+.env
+.env.*
+!.env.example
+# logs, OS, editors
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.vercel
+coverage/

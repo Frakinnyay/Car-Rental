@@ -1,77 +1,55 @@
-import mongoose from "mongoose"
-import bcrypt from 'bcrypt'
-import User from "../models/User.js"
-import jwt from 'jsonwebtoken'
-import Car from "../models/Car.js"
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+import Car from "../models/Car.js";
+import { HttpError, isString } from "../utils/validate.js";
 
-//function for generating the token so that reg user can acess the rectricted web pages
-const generateToken=(userId)=>{
-  const payload=userId;
-  return jwt.sign(payload,process.env.JWT_SECRET)
-}
-//registeruser controller
-export const registerUser=async(req,res)=>{
-    try {
-        const {name,email,password}=req.body
-        if(!name || !email || !password ||password.length<8)
-        {
-            return res.json({success:false, message:'fill the data'})
-        }
-        const userExist= await User.findOne({email})
-        if(userExist)
-        {
-            return res.json({success:false,message:'Alrady registered email'})
-        }
-        const hashedpassword=await bcrypt.hash(password,10)
-        const user= await User.create({name,email,password:hashedpassword})     
-        const token=generateToken(user._id.toString())
-        res.json({success:true,token})
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+// Signed, expiring token. Payload is an object so `jwt.verify` can validate it.
+const generateToken = (userId) =>
+  jwt.sign({ id: userId }, process.env.JWT_SECRET, { algorithm: "HS256", expiresIn: process.env.JWT_EXPIRES_IN || "7d" });
 
-//login user
-export const loginUser=async(req,res)=>
-{
-   try {
-    const {email,password}=req.body
-    const user=await User.findOne({email});
-    if(!user)
-    {
-        return res.json({success:false,message:"User does not exist"})
-    }
-    const isMatch=await bcrypt.compare(password,user.password)
-    if(!isMatch)
-    {
-        return res.json({success:false,message:"Wrong crendentials"})
-    }
-    const token=generateToken(user._id.toString())
-    res.json({success:true,token})
-   } catch (error) {
-     console.log(error.message)
-     res.json({success:false,message:error.message})
-   }
-}
+export const registerUser = async (req, res) => {
+  const { name, email, password } = req.body;
+  if (![name, email, password].every(isString)) throw new HttpError(400, "Name, email and password are required.");
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanName || cleanName.length > 100) throw new HttpError(400, "Please enter a valid name.");
+  if (!EMAIL_RE.test(cleanEmail)) throw new HttpError(400, "Please enter a valid email address.");
+  if (password.length < 8) throw new HttpError(400, "Password must be at least 8 characters.");
+  if (password.length > 72) throw new HttpError(400, "Password must be at most 72 characters.");
 
-//api for getting user data with token
-export const getUserData=async(req,res)=>{
-    try {
-        const {user}=req; 
-        return res.json({success:true,user});
-    } catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
-    }
-}
-//api for getting car from fronend
-export const getCars=async(req,res)=>{
-    try {
-        const cars=await Car.find({isAvailable:true})
-        res.json({success:true,cars})
-    } catch (error) {
-        res.json({success:false,message:error.message});
-    }
-}
+  if (await User.exists({ email: cleanEmail })) throw new HttpError(409, "This email is already registered.");
+
+  const hashed = await bcrypt.hash(password, 10);
+  let user;
+  try {
+    user = await User.create({ name: cleanName, email: cleanEmail, password: hashed });
+  } catch (err) {
+    if (err?.code === 11000) throw new HttpError(409, "This email is already registered.");
+    throw err;
+  }
+  res.status(201).json({ success: true, token: generateToken(user._id.toString()) });
+};
+
+export const loginUser = async (req, res) => {
+  const { email, password } = req.body;
+  if (!isString(email) || !isString(password)) throw new HttpError(400, "Email and password are required.");
+  const user = await User.findOne({ email: email.trim().toLowerCase() });
+  // Same message for unknown email and wrong password (no account enumeration).
+  const ok = user && (await bcrypt.compare(password, user.password));
+  if (!ok) throw new HttpError(401, "Invalid email or password.");
+  res.json({ success: true, token: generateToken(user._id.toString()) });
+};
+
+// `protect` already loaded the user without the password field.
+export const getUserData = async (req, res) => {
+  res.json({ success: true, user: req.user });
+};
+
+// Public list of cars that can currently be rented.
+export const getCars = async (req, res) => {
+  const cars = await Car.find({ isAvailable: true, owner: { $ne: null } }).sort({ createdAt: -1 });
+  res.json({ success: true, cars });
+};
