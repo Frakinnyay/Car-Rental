@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { assets, ownerMenuLinks } from '../../assets/assets'
 import { NavLink, useLocation } from 'react-router-dom';
-import { useAppContext } from '../../context/AppContext';
+import { useAppContext } from '../../context/useAppContext';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '../../utils/errors';
 
 const Sidebar = () => {
     const {user,axios,fetchUser}=useAppContext();
@@ -22,7 +23,7 @@ const Sidebar = () => {
         toast.error(data.message)
       }
      } catch (error) {
-      toast.error(error.message)
+      toast.error(getErrorMessage(error))
      }
     }
   return (

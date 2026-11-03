@@ -1,5 +1,6 @@
 import React from 'react'
 import { assets } from '../assets/assets'
+import { Link } from 'react-router-dom'
 
 const Footer = () => {
   return (
@@ -26,8 +27,8 @@ const Footer = () => {
                  <div>
                     <p className='text-base font-medium text-gray-800 uppercase'>quick links</p>
                     <ul className='mt-3 flex flex-col gap-1.5'>
-                        <li><a href="#">Home</a></li>
-                        <li><a href="#">Browse Cars</a></li>
+                        <li><Link to="/">Home</Link></li>
+                        <li><Link to="/cars">Browse Cars</Link></li>
                         <li><a href="#">List Your Cars</a></li>
                         <li><a href="#">About us</a></li>
                     </ul>
@@ -53,7 +54,7 @@ const Footer = () => {
             </div>
             
             <div className='flex flex-col md:flex-row gap-2 items-center justify-between py-5'>
-                <p>© {new Date().getFullYear()} Brand. All rights reserved.</p>
+                <p>© {new Date().getFullYear()} CarRental. All rights reserved.</p>
                 <ul className='flex items-center gap-4'>
                     <li><a href="#">Privacy</a></li>
                     <li>|</li>

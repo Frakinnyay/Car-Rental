@@ -1,182 +1,122 @@
-import imagekit from "../config/imageKit.js";
 import User from "../models/User.js";
-import fs from 'fs'
 import Car from "../models/Car.js";
 import Booking from "../models/Booking.js";
-//api to change user status
-export const updaterole=async(req,res)=>{
-    try {
-        const {_id}=req.user;
-        await User.findByIdAndUpdate(_id,{role:"owner"});
-        res.json({success:true,message:"You can list your car"})
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:"error.message"})
-    }
-}
-//api to list car
-export const addCar=async(req,res)=>{
-    try {
-        const {_id}=req.user
-        //json.parse is used for converting from string to json object
-        let car=JSON.parse(req.body.carData)
-        //multer add the file automaticaaly in the req.file
-        const imageFile=req.file;
-        //here we have converted the image to base64 format using filesystem 'fs'
-        //since in image kit it is required file format for uploading it.
-        const fileBuffer=fs.readFileSync(imageFile.path)
-        const response=await imagekit.upload({
-            file:fileBuffer,
-            fileName:imageFile.originalname,
-            folder:'/cars'
-        })
-        // Optimize through ImageKit URL generation
-        var optimizedImageUrl = imagekit.url
-       ({
-           path: response.filePath,
-           transformation : 
-           [
-            {width:'1280'},//width resizing
-            {quality:'auto'},//Auto compression
-            {format:'webp'} //Convert to Modern format(supported on all web application & very light size)
-           ]
-       });
-       //stored the url of image in image variable
-       const image=optimizedImageUrl;
-       //... is spread operator here it add all the details of elements
-       //like here the car conatins too many detials like brand fuel milage price etc
-       //so in order to pass all the info here to create or add new car we need to use the
-       //spread operator here.
-       await Car.create({...car,owner:_id,image});
-       res.json({success:true,message:"Car has been added"})
+import { uploadImage } from "../utils/uploadImage.js";
+import { HttpError, isNonEmptyString, isValidId } from "../utils/validate.js";
 
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+// A signed-in user becomes an owner (the "List your car" button).
+export const updaterole = async (req, res) => {
+  await User.findByIdAndUpdate(req.user._id, { role: "owner" });
+  res.json({ success: true, message: "You can list your car" });
+};
 
-//api to list owner all car
-export const getownercar=async(req,res)=>{
-    try {
-        const {_id}=req.user
-        const cars=await Car.find({owner:_id})
-        res.json({success:true,cars})
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+const num = (v) => (typeof v === "number" || (typeof v === "string" && v.trim() !== "") ? Number(v) : NaN);
 
-//api to toggle car activity
-export const toggleCarAvailablity=async(req,res)=>{
-    try {
-        const {_id}=req.user
-        const {carId}=req.body
-        const car=await Car.findById(carId)
-        //checking is car belong to user
-        if(car.owner.toString() !==_id.toString())
-        {
-            return res.json({success:false,message:"Unauthorized"})
-        }
-        car.isAvailable =!car.isAvailable;
-        await car.save();
-        res.json({success:true,message:"Availablity Toggled"})
-        
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+// Only these fields can be set by the client (no mass-assignment of owner/image/etc.).
+const parseCarInput = (raw) => {
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "Invalid car data.");
+  }
+  if (!data || typeof data !== "object") throw new HttpError(400, "Invalid car data.");
 
-//api to delete car
-export const deleteCar=async(req,res)=>{
-    try {
-        const {_id}=req.user
-        const {carId}=req.body
-        const car=await Car.findById(carId)
-        //checking is car belong to user
-        if(car.owner.toString() !==_id.toString())
-        {
-            return res.json({success:false,message:"Unauthorized"})
-        }
-       car.owner=null;
-       car.isAvailable=false;
-       await car.save();
-       res.json({success:true,message:"Car Removed"})  
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+  const car = {
+    brand: data.brand,
+    model: data.model,
+    category: data.category,
+    fuel_type: data.fuel_type,
+    transmission: data.transmission,
+    location: data.location,
+    description: data.description,
+    year: num(data.year),
+    pricePerDay: num(data.pricePerDay),
+    seating_capacity: num(data.seating_capacity),
+  };
+  for (const key of ["brand", "model", "category", "fuel_type", "transmission", "location", "description"]) {
+    if (!isNonEmptyString(car[key])) throw new HttpError(400, `Please provide a value for "${key}".`);
+    car[key] = car[key].trim();
+  }
+  const thisYear = new Date().getFullYear();
+  if (!Number.isInteger(car.year) || car.year < 1900 || car.year > thisYear + 1) throw new HttpError(400, "Please enter a valid year.");
+  if (!Number.isFinite(car.pricePerDay) || car.pricePerDay <= 0) throw new HttpError(400, "Daily price must be greater than 0.");
+  if (!Number.isInteger(car.seating_capacity) || car.seating_capacity < 1 || car.seating_capacity > 60) {
+    throw new HttpError(400, "Please enter a valid seating capacity.");
+  }
+  return car;
+};
 
-//api to get dashboard data
+export const addCar = async (req, res) => {
+  if (!req.file) throw new HttpError(400, "A car image is required.");
+  if (!isNonEmptyString(req.body.carData)) throw new HttpError(400, "Car details are required.");
+  const car = parseCarInput(req.body.carData);
+  const image = await uploadImage(req.file, "/cars");
+  await Car.create({ ...car, owner: req.user._id, image, isAvailable: true });
+  res.status(201).json({ success: true, message: "Car has been added" });
+};
 
-export const getDashBoardData =async(req,res)=>{
-    try {
-        const {_id,role}=req.user
-        if(role!=='owner')
-        {
-           return res.json({success:false,message:"Unauthorized"});
-        }
-        const cars=await Car.find({owner:_id})
-        const booking=await Booking.find({owner:_id}).populate('car').sort({createdAt:-1})
-        const pendingBookings=await Booking.find({owner:_id,status:"pending"})
-        const confirmedBookings=await Booking.find({owner:_id,status:"confirmed"})
-        //calculate monthly revenue where staus is confirmed
-        const monthlyRevenue= booking.slice().filter(booking=>booking.status==='confirmed').reduce(acc,booking=>acc +booking.price,0)
-        //this part can also be writte as 
-        // const confirmedBookingsOnly = booking.filter(b => b.status === 'confirmed');
-       //  let monthlyRevenue = 0;
-      //   for (let b of confirmedBookingsOnly) {
-     //    monthlyRevenue += b.price;
-     // }
+export const getownercar = async (req, res) => {
+  const cars = await Car.find({ owner: req.user._id }).sort({ createdAt: -1 });
+  res.json({ success: true, cars });
+};
 
-        const dashBoradData={
-            totleCars:cars.length,
-            totalBookings:booking.length,
-            pendingBookings:pendingBookings.length,
-            confirmedBookings:confirmedBookings.length,
-            recentBookings:booking.slice(0,3),
-            monthlyRevenue
-        }
-        res.json({success:true,dashBoradData})
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:"error.message"})
-    }
-}
+const findOwnedCar = async (carId, userId) => {
+  if (!isValidId(carId)) throw new HttpError(400, "A valid car is required.");
+  const car = await Car.findById(carId);
+  if (!car) throw new HttpError(404, "Car not found.");
+  if (!car.owner || car.owner.toString() !== userId.toString()) throw new HttpError(403, "Unauthorized");
+  return car;
+};
 
-//api to update user image
-export const updateUserImage=async(req,res)=>{
-    try {
-        const {_id}=req.user
-        const imageFile=req.file;
-        //here we have converted the image to base64 format using filesystem 'fs'
-        //since in image kit it is required file format for uploading it.
-        const fileBuffer=fs.readFileSync(imageFile.path)
-        const response=await imagekit.upload({
-            file:fileBuffer,
-            fileName:imageFile.originalname,
-            folder:'/users'
-        })
-        // Optimize through ImageKit URL generation
-        var optimizedImageUrl = imagekit.url
-       ({
-           path: response.filePath,
-           transformation : 
-           [
-            {width:'1280'},//width resizing
-            {quality:'auto'},//Auto compression
-            {format:'webp'} //Convert to Modern format(supported on all web application & very light size)
-           ]
-       });
-       //stored the url of image in image variable
-       const image=optimizedImageUrl;
-       await User.findByIdAndUpdate(_id,{image})
-       res.json({success:true,message:"image updated"})
-    } catch (error) {
-        console.log(error.message)
-        res.json({success:false,message:error.message})
-    }
-}
+export const toggleCarAvailablity = async (req, res) => {
+  const car = await findOwnedCar(req.body.carId, req.user._id);
+  car.isAvailable = !car.isAvailable;
+  await car.save();
+  res.json({ success: true, message: "Availablity Toggled" });
+};
+
+// "Delete" detaches the car from its owner and hides it, so existing bookings
+// that reference the car keep working in booking history.
+export const deleteCar = async (req, res) => {
+  const car = await findOwnedCar(req.body.carId, req.user._id);
+  car.owner = null;
+  car.isAvailable = false;
+  await car.save();
+  res.json({ success: true, message: "Car Removed" });
+};
+
+export const getDashBoardData = async (req, res) => {
+  const owner = req.user._id;
+  const startOfMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+
+  const [totalCars, bookings, pendingBookings, completedBookings, revenue] = await Promise.all([
+    Car.countDocuments({ owner }),
+    Booking.find({ owner }).populate("car").sort({ createdAt: -1 }),
+    Booking.countDocuments({ owner, status: "pending" }),
+    Booking.countDocuments({ owner, status: "confirmed" }),
+    Booking.aggregate([
+      { $match: { owner, status: "confirmed", createdAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, total: { $sum: "$price" } } },
+    ]),
+  ]);
+
+  res.json({
+    success: true,
+    dashboardData: {
+      totalCars,
+      totalBookings: bookings.length,
+      pendingBookings,
+      completedBookings,
+      recentBookings: bookings.slice(0, 3),
+      monthlyRevenue: revenue[0]?.total ?? 0,
+    },
+  });
+};
+
+export const updateUserImage = async (req, res) => {
+  if (!req.file) throw new HttpError(400, "An image is required.");
+  const image = await uploadImage(req.file, "/users");
+  await User.findByIdAndUpdate(req.user._id, { image });
+  res.json({ success: true, message: "Image updated" });
+};
